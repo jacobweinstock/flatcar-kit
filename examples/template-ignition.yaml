@@ -1,0 +1,56 @@
+apiVersion: "tinkerbell.org/v1alpha1"
+kind: Template
+metadata:
+  name: flatcar-ignition
+spec:
+  data: |
+    name: "flatcar ignition"
+    global_timeout: 600
+    tasks:
+      - name: "flatcar installation"
+        worker: "{{.agent}}"
+        # /out is a shared host directory so the ignition.json produced by the
+        # first action survives and is consumed by the install action. /dev is
+        # required by flatcar-install for raw block-device access.
+        volumes:
+          - /tmp/tink:/out
+          - /dev:/dev
+        actions:
+          - name: "butane to ignition"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /out
+              TARGET_FILE: ignition.json
+              # BUTANE_CONFIG is the raw Butane document (YAML embedded as a
+              # multi-line string).
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                passwd:
+                  users:
+                    - name: core
+                      # SSH public keys come from the Hardware's
+                      # spec.metadata.instance.ssh_keys.
+                      ssh_authorized_keys:
+                        {{- range .hardware.spec.metadata.instance.ssh_keys }}
+                        - {{ . }}
+                        {{- end }}
+                storage:
+                  files:
+                    - path: /etc/hostname
+                      mode: 0644
+                      contents:
+                        inline: flatcar-node
+          - name: "flatcar-install"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 1500
+            pid: host
+            command: ["install"]
+            environment:
+              DEVICE: "{{ (index .hardware.spec.disks 0).device }}"
+              CHANNEL: stable
+              VERSION: current
+              # Consume the ignition.json written by the previous action.
+              IGNITION_FILE: /out/ignition.json

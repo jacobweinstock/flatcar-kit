@@ -1,0 +1,214 @@
+apiVersion: "tinkerbell.org/v1alpha1"
+kind: Template
+metadata:
+  name: flatcar-advanced
+spec:
+  # Composable variant of template-homelab.yaml. Instead of one giant Butane
+  # config, each component (docker, docker-compose, docker-buildx, tailscale)
+  # is transpiled to its own Ignition JSON on a shared volume. A final "base"
+  # config merges them via `ignition.config.merge[].local`, which butane
+  # resolves at TRANSPILE time (with --files-dir) and embeds into base.ign as
+  # data: URLs. The result is a single, self-contained Ignition config with no
+  # boot-time network fetch. The install action then uses base.ign directly.
+  data: |
+    {{- /* Version pins. Override per-Workflow via spec.hardwareMap, e.g.
+             spec:
+               hardwareMap:
+                 dockerVersion: "30.0.0"
+           `dig` is used (not `.dockerVersion`) because the renderer sets
+           missingkey=error; `dig` returns its default for a missing key. */ -}}
+    {{- $dockerVersion := dig "dockerVersion" "29.6.2" . -}}
+    {{- $dockerComposeVersion := dig "dockerComposeVersion" "2.40.3" . -}}
+    {{- $dockerBuildxVersion := dig "dockerBuildxVersion" "0.35.0" . -}}
+    {{- $tailscaleVersion := dig "tailscaleVersion" "1.98.8" . -}}
+    name: "flatcar composed (local merge)"
+    global_timeout: 1800
+    tasks:
+      - name: "flatcar installation"
+        worker: "{{ .agent }}"
+        volumes:
+          - /dev:/dev
+          - /ignition:/ignition
+        actions:
+          # 1. Docker component. Upgrades Docker from the OS-bundled version via
+          #    a systemd-sysext overlay (bundles matching containerd + runc) and
+          #    masks the OS-bundled docker/containerd sysexts so it takes effect.
+          - name: "render docker"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /ignition
+              TARGET_FILE: docker.ign
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                storage:
+                  files:
+                    - path: /opt/extensions/docker/docker-{{ $dockerVersion }}-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-{{ $dockerVersion }}/docker-{{ $dockerVersion }}-x86-64.raw
+                        verification:
+                          hash: sha256-2c45e3506538948e5535919d191b425b1be082dcb6b66cc1211d1d9fd4dc922d
+                  links:
+                    - path: /etc/extensions/docker.raw
+                      target: /opt/extensions/docker/docker-{{ $dockerVersion }}-x86-64.raw
+                      hard: false
+                    # Mask the OS-bundled docker + containerd sysexts so the
+                    # overlay above actually takes effect.
+                    - path: /etc/extensions/docker-flatcar.raw
+                      target: /dev/null
+                      overwrite: true
+                    - path: /etc/extensions/containerd-flatcar.raw
+                      target: /dev/null
+                      overwrite: true
+
+          # 2. Docker Compose v2 plugin (`docker compose ...`).
+          - name: "render docker-compose"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /ignition
+              TARGET_FILE: docker-compose.ign
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                storage:
+                  files:
+                    - path: /opt/extensions/docker-compose/docker-compose-{{ $dockerComposeVersion }}-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-compose-{{ $dockerComposeVersion }}/docker-compose-{{ $dockerComposeVersion }}-x86-64.raw
+                        verification:
+                          hash: sha256-348673c2aace31133647e75ce956ed867e61c2283c568aadfafa19843ae176de
+                  links:
+                    - path: /etc/extensions/docker-compose.raw
+                      target: /opt/extensions/docker-compose/docker-compose-{{ $dockerComposeVersion }}-x86-64.raw
+                      hard: false
+
+          # 3. Docker Buildx plugin (`docker buildx ...`).
+          - name: "render docker-buildx"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /ignition
+              TARGET_FILE: docker-buildx.ign
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                storage:
+                  files:
+                    - path: /opt/extensions/docker-buildx/docker-buildx-{{ $dockerBuildxVersion }}-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-buildx-{{ $dockerBuildxVersion }}/docker-buildx-{{ $dockerBuildxVersion }}-x86-64.raw
+                        verification:
+                          hash: sha256-7bae984f1fd6527ee7e398aa900c1a6fde9c2a041292a4a297fb2668920798e3
+                  links:
+                    - path: /etc/extensions/docker-buildx.raw
+                      target: /opt/extensions/docker-buildx/docker-buildx-{{ $dockerBuildxVersion }}-x86-64.raw
+                      hard: false
+
+          # 4. Tailscale component. Installs the sysext, starts tailscaled at
+          #    boot, and wires up systemd-sysupdate for automatic updates.
+          #    See https://flatcar.github.io/sysext-bakery/tailscale/.
+          - name: "render tailscale"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /ignition
+              TARGET_FILE: tailscale.ign
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                storage:
+                  files:
+                    - path: /opt/extensions/tailscale/tailscale-v{{ $tailscaleVersion }}-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://extensions.flatcar.org/extensions/tailscale-v{{ $tailscaleVersion }}-x86-64.raw
+                    # systemd-sysupdate config to keep the Tailscale sysext
+                    # updated. Sets /run/reboot-required when a new version is
+                    # staged; disable by setting the timer to enabled: false.
+                    - path: /etc/sysupdate.tailscale.d/tailscale.conf
+                      contents:
+                        source: https://extensions.flatcar.org/extensions/tailscale.conf
+                    - path: /etc/sysupdate.d/noop.conf
+                      contents:
+                        source: https://extensions.flatcar.org/extensions/noop.conf
+                  links:
+                    # Activate the overlay and start tailscaled at boot.
+                    - path: /etc/extensions/tailscale.raw
+                      target: /opt/extensions/tailscale/tailscale-v{{ $tailscaleVersion }}-x86-64.raw
+                      hard: false
+                    - path: /etc/systemd/system/multi-user.target.wants/tailscaled.service
+                      target: /usr/local/lib/systemd/system/tailscaled.service
+                      overwrite: true
+                systemd:
+                  units:
+                    # Periodically check for and stage Tailscale sysext updates.
+                    - name: systemd-sysupdate.timer
+                      enabled: true
+                    - name: systemd-sysupdate.service
+                      dropins:
+                        - name: tailscale.conf
+                          contents: |
+                            [Service]
+                            ExecStartPre=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/tailscale.raw > /tmp/tailscale"
+                            ExecStartPre=/usr/lib/systemd/systemd-sysupdate -C tailscale update
+                            ExecStartPost=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/tailscale.raw > /tmp/tailscale-new"
+                            ExecStartPost=/usr/bin/sh -c "if ! cmp --silent /tmp/tailscale /tmp/tailscale-new; then touch /run/reboot-required; fi"
+
+          # 5. Base config. Merges the component configs via `local` (resolved
+          #    at transpile time by butane --files-dir, embedded into base.ign),
+          #    and adds the machine-specific bits (users, hostname).
+          - name: "render base"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 120
+            command: ["ignition"]
+            environment:
+              TARGET_PATH: /ignition
+              TARGET_FILE: base.ign
+              # Tell butane where to read the `local` merge files from.
+              EXTRA_ARGS: "--files-dir /ignition"
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                ignition:
+                  config:
+                    merge:
+                      - local: docker.ign
+                      - local: docker-compose.ign
+                      - local: docker-buildx.ign
+                      - local: tailscale.ign
+                passwd:
+                  users:
+                    - name: core
+                      # SSH public keys come from the Hardware's
+                      # spec.metadata.instance.ssh_keys.
+                      ssh_authorized_keys:
+                        {{- range .hardware.spec.metadata.instance.ssh_keys }}
+                        - {{ . }}
+                        {{- end }}
+                storage:
+                  files:
+                    - path: /etc/hostname
+                      mode: 0644
+                      contents:
+                        inline: {{ .hardware.spec.metadata.instance.hostname }}
+
+          # 6. Install Flatcar using the single, self-contained base.ign.
+          - name: "install"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 1200
+            pid: host
+            command: ["install"]
+            environment:
+              DEVICE: "{{ (index .hardware.spec.disks 0).device }}"
+              CHANNEL: stable
+              VERSION: current
+              IGNITION_FILE: /ignition/base.ign

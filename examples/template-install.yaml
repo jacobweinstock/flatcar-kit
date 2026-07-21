@@ -1,0 +1,48 @@
+apiVersion: "tinkerbell.org/v1alpha1"
+kind: Template
+metadata:
+  name: flatcar-install
+spec:
+  data: |
+    name: "flatcar install"
+    global_timeout: 1800
+    tasks:
+      - name: "flatcar installation"
+        worker: "{{.agent}}"
+        # flatcar-install needs raw block-device access; the action must run
+        # privileged with /dev mounted. pid:host lets udevadm re-read the
+        # partition table after the image is written.
+        volumes:
+          - /dev:/dev
+          - /tmp/tink:/out
+        actions:
+          - name: "flatcar install"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 1500
+            pid: host
+            command: ["install"]
+            environment:
+              DEVICE: "{{ (index .hardware.spec.disks 0).device }}"
+              CHANNEL: stable
+              VERSION: current
+              # A pre-rendered Ignition config, provided inline. flatcar-kit
+              # writes it to a temp file and passes it to flatcar-install (-i).
+              # Use IGNITION_FILE instead to point at a mounted file.
+              # IGNITION_FILE: /out/ignition.json
+              IGNITION_CONFIG: |
+                {
+                  "ignition": { "version": "3.4.0" },
+                  "passwd": {
+                    "users": [
+                      {
+                        "name": "core",
+                        "sshAuthorizedKeys": [
+                          {{- range $i, $k := .hardware.spec.metadata.instance.ssh_keys }}
+                          {{- if $i }},{{ end }}
+                          "{{ $k }}"
+                          {{- end }}
+                        ]
+                      }
+                    ]
+                  }
+                }

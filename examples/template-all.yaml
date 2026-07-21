@@ -1,0 +1,89 @@
+apiVersion: "tinkerbell.org/v1alpha1"
+kind: Template
+metadata:
+  name: flatcar-all
+spec:
+  data: |
+    name: "flatcar all"
+    global_timeout: 1800
+    tasks:
+      - name: "flatcar installation"
+        worker: "{{.agent}}"
+        # The "all" mode transpiles the Butane config and installs in a single
+        # action: the ignition step writes /tmp/ignition.json inside the
+        # container and hands it to the install step, so no shared volume is
+        # needed for the ignition output. /dev is required for the disk.
+        # CaptainOS ships the btrfs module (flatcar-install mounts the Flatcar
+        # OEM partition as btrfs to write the Ignition config).
+        volumes:
+          - /dev:/dev
+        actions:
+          - name: "butane and install"
+            image: ghcr.io/jacobweinstock/flatcar-kit:latest
+            timeout: 1500
+            pid: host
+            command: ["all"]
+            environment:
+              DEVICE: "{{ (index .hardware.spec.disks 2).device }}"
+              CHANNEL: stable
+              VERSION: current
+              # ignition step inputs
+              BUTANE_CONFIG: |
+                variant: flatcar
+                version: 1.0.0
+                passwd:
+                  users:
+                    - name: core
+                      # SSH public keys come from the Hardware's
+                      # spec.metadata.instance.ssh_keys.
+                      ssh_authorized_keys:
+                        {{- range .hardware.spec.metadata.instance.ssh_keys }}
+                        - {{ . }}
+                        {{- end }}
+                storage:
+                  files:
+                    - path: /etc/hostname
+                      mode: 0644
+                      contents:
+                        inline: {{ .hardware.spec.metadata.instance.hostname }}
+                    # Upgrade Docker from the OS-bundled version to 29.6.2 via a
+                    # systemd-sysext overlay (bundles matching containerd + runc).
+                    - path: /opt/extensions/docker/docker-29.6.2-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-29.6.2/docker-29.6.2-x86-64.raw
+                        verification:
+                          hash: sha256-2c45e3506538948e5535919d191b425b1be082dcb6b66cc1211d1d9fd4dc922d
+                    # Docker Compose v2 plugin (`docker compose ...`).
+                    - path: /opt/extensions/docker-compose/docker-compose-2.40.3-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-compose-2.40.3/docker-compose-2.40.3-x86-64.raw
+                        verification:
+                          hash: sha256-348673c2aace31133647e75ce956ed867e61c2283c568aadfafa19843ae176de
+                    # Docker Buildx plugin (`docker buildx ...`).
+                    - path: /opt/extensions/docker-buildx/docker-buildx-0.35.0-x86-64.raw
+                      mode: 0644
+                      contents:
+                        source: https://github.com/flatcar/sysext-bakery/releases/download/docker-buildx-0.35.0/docker-buildx-0.35.0-x86-64.raw
+                        verification:
+                          hash: sha256-7bae984f1fd6527ee7e398aa900c1a6fde9c2a041292a4a297fb2668920798e3
+                  links:
+                    # Activate the overlays.
+                    - path: /etc/extensions/docker.raw
+                      target: /opt/extensions/docker/docker-29.6.2-x86-64.raw
+                      hard: false
+                    - path: /etc/extensions/docker-compose.raw
+                      target: /opt/extensions/docker-compose/docker-compose-2.40.3-x86-64.raw
+                      hard: false
+                    - path: /etc/extensions/docker-buildx.raw
+                      target: /opt/extensions/docker-buildx/docker-buildx-0.35.0-x86-64.raw
+                      hard: false
+                    # Mask the OS-bundled docker + containerd sysexts so the
+                    # 29.6.2 overlay actually takes effect.
+                    - path: /etc/extensions/docker-flatcar.raw
+                      target: /dev/null
+                      overwrite: true
+                    - path: /etc/extensions/containerd-flatcar.raw
+                      target: /dev/null
+                      overwrite: true
