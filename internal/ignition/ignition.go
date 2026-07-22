@@ -18,6 +18,10 @@ import (
 // butane is the name of the external transpiler binary.
 const butane = "butane"
 
+// execCommand runs an external command. It is a package variable so tests can
+// substitute a stub in place of the real butane binary.
+var execCommand = run.Command
+
 // Run transpiles the Butane config in c to an Ignition JSON document. It returns
 // the path of the written Ignition file, or an empty string when the output was
 // written to stdout only or when only validation was requested.
@@ -32,7 +36,7 @@ func Run(ctx context.Context, logger *slog.Logger, c *config.Ignition) (string, 
 	if c.ValidateOnly {
 		logger.Info("validating Butane config")
 		args := append([]string{"--strict"}, extra...)
-		if err := run.Command(ctx, stdin, io.Discard, butane, args...); err != nil {
+		if err := execCommand(ctx, stdin, io.Discard, butane, args...); err != nil {
 			return "", fmt.Errorf("validation failed: %w", err)
 		}
 		logger.Info("config valid")
@@ -42,7 +46,7 @@ func Run(ctx context.Context, logger *slog.Logger, c *config.Ignition) (string, 
 	logger.Info("transpiling Butane config to Ignition JSON")
 
 	if c.StdoutOnly {
-		if err := run.Command(ctx, stdin, os.Stdout, butane, extra...); err != nil {
+		if err := execCommand(ctx, stdin, os.Stdout, butane, extra...); err != nil {
 			return "", fmt.Errorf("transpilation failed: %w", err)
 		}
 		logger.Info("transpilation successful")
@@ -65,7 +69,7 @@ func Run(ctx context.Context, logger *slog.Logger, c *config.Ignition) (string, 
 		stdout = io.MultiWriter(f, os.Stdout)
 	}
 
-	if err := run.Command(ctx, stdin, stdout, butane, extra...); err != nil {
+	if err := execCommand(ctx, stdin, stdout, butane, extra...); err != nil {
 		return "", fmt.Errorf("transpilation failed: %w", err)
 	}
 

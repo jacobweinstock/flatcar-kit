@@ -40,12 +40,15 @@ Action `environment` map.
 
 `TEE_TO_STDOUT` and `STDOUT_ONLY` are mutually exclusive.
 
+`EXTRA_ARGS` is split on whitespace (there is no shell-style quoting), so
+arguments whose values contain spaces are not supported.
+
 ### `install` mode
 
 | Name | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `DEVICE` | string | `""` | yes\* | Target block device, e.g. `/dev/sda`. |
-| `INSTALL_TO_SMALLEST` | bool | `false` | yes\* | Install to the smallest available disk. |
+| `DEVICE` | string | `""` | one of\* | Target block device, e.g. `/dev/sda`. |
+| `INSTALL_TO_SMALLEST` | bool | `false` | one of\* | Install to the smallest available disk. |
 | `IGNITION_FILE` | string | `""` | no | Path to an existing Ignition config file. |
 | `IGNITION_CONFIG` | string | `""` | no | Inline Ignition config. |
 | `CHANNEL` | string | `""` | no | Flatcar release channel. |
@@ -64,6 +67,9 @@ Action `environment` map.
 \* Exactly one of `DEVICE` or `INSTALL_TO_SMALLEST` is required; they are
 mutually exclusive. `IGNITION_FILE` and `IGNITION_CONFIG` are also mutually
 exclusive.
+
+`EXTRA_ARGS` is split on whitespace (there is no shell-style quoting), so
+arguments whose values contain spaces are not supported.
 
 ### `all` mode
 
