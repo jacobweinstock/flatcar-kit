@@ -1,0 +1,20 @@
+version: "2"
+run:
+  timeout: 4m
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+formatters:
+  enable:
+    - gofumpt
+    - goimports

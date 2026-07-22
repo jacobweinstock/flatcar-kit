@@ -13,15 +13,21 @@ import (
 	"syscall"
 
 	"github.com/jacobweinstock/flatcar-kit/internal/action"
+	"github.com/jacobweinstock/flatcar-kit/internal/build"
 	"github.com/jacobweinstock/flatcar-kit/internal/config"
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	ctx, done := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 	defer done()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger.Info("using flatcar-kit", "version", build.GitRevision())
 
 	root := buildRoot(logger)
 
@@ -29,14 +35,15 @@ func main() {
 	switch {
 	case errors.Is(err, ff.ErrHelp):
 		fmt.Fprintln(os.Stderr, ffhelp.Command(root))
-		os.Exit(0)
+		return 0
 	case errors.Is(err, ff.ErrNoExec):
 		fmt.Fprintln(os.Stderr, ffhelp.Command(root))
-		os.Exit(2)
+		return 2
 	case err != nil:
 		logger.Error(err.Error())
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // buildRoot constructs the command tree and returns it along with the argument

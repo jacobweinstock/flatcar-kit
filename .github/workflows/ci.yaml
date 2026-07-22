@@ -1,0 +1,80 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  GO_VERSION: "1.26"
+
+jobs:
+  test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+
+      - name: Run tests
+        run: make test
+
+      - name: Run linters
+        run: make lint
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+
+      - name: Build binary
+        run: make build GOOS=linux GOARCH=${{ matrix.arch }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: flatcar-kit-linux-${{ matrix.arch }}
+          path: out/flatcar-kit-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  image:
+    # Build (but don't push) the image on PRs and pushes to main to validate the Dockerfile.
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+
+      - name: Download binary
+        uses: actions/download-artifact@v8
+        with:
+          name: flatcar-kit-linux-amd64
+          path: out
+
+      - name: Fix permissions
+        run: chmod +x out/flatcar-kit-linux-amd64
+
+      - name: Build container image
+        run: make image
+        env:
+          IMAGE: ${{ env.IMAGE }}

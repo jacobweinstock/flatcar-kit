@@ -1,7 +1,15 @@
 # syntax=docker/dockerfile:1
 
-# ---- build stage -----------------------------------------------------------
-FROM golang:1.26 AS build
+# BUILD_IN_CONTAINER controls where the Go binary comes from.
+#   false (default): copy a binary that was built outside the container
+#                    (on the host or in CI) from out/flatcar-kit-${TARGETOS}-${TARGETARCH}.
+#   true:            compile the binary inside the container (needs the Go toolchain).
+ARG BUILD_IN_CONTAINER=false
+ARG TARGETOS
+ARG TARGETARCH
+
+# ---- build stage: compile inside the container -----------------------------
+FROM golang:1.26 AS build-true
 
 WORKDIR /src
 
@@ -11,7 +19,20 @@ RUN go mod download
 COPY . .
 
 # Static, stripped binary so it runs on the butane (Fedora) base without libc deps.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /flatcar-kit .
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+        go build -trimpath -ldflags="-s -w" -o /flatcar-kit .
+
+# ---- build stage: use a prebuilt binary from the build context -------------
+FROM scratch AS build-false
+
+ARG TARGETOS
+ARG TARGETARCH
+COPY out/flatcar-kit-${TARGETOS}-${TARGETARCH} /flatcar-kit
+
+# ---- select the build stage based on BUILD_IN_CONTAINER --------------------
+FROM build-${BUILD_IN_CONTAINER} AS build
 
 # ---- runtime stage ---------------------------------------------------------
 FROM quay.io/coreos/butane:latest

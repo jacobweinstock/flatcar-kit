@@ -58,7 +58,7 @@ func Run(ctx context.Context, logger *slog.Logger, c *config.Ignition) (string, 
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file %q: %w", outPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var stdout io.Writer = f
 	if c.TeeToStdout {

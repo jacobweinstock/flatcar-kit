@@ -37,13 +37,13 @@ func Args(c *config.Install) (args []string, cleanup func(), err error) {
 			return nil, cleanup, fmt.Errorf("failed to create temp ignition file: %w", terr)
 		}
 		if _, werr := tmp.WriteString(c.IgnitionConfig); werr != nil {
-			tmp.Close()
-			os.Remove(tmp.Name())
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
 			return nil, cleanup, fmt.Errorf("failed to write temp ignition file: %w", werr)
 		}
-		tmp.Close()
+		_ = tmp.Close()
 		ignitionPath = tmp.Name()
-		cleanup = func() { os.Remove(tmp.Name()) }
+		cleanup = func() { _ = os.Remove(tmp.Name()) }
 	}
 	if ignitionPath != "" {
 		args = append(args, "-i", ignitionPath)
