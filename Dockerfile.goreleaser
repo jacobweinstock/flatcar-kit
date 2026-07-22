@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+
+# Dockerfile used by GoReleaser (dockers_v2). GoReleaser cross-compiles the
+# binary and places it in the build context under $TARGETPLATFORM (e.g.
+# linux/amd64/flatcar-kit), so this file only assembles the runtime image.
+#
+# The runtime stage mirrors the main Dockerfile: the butane (Fedora) base plus
+# the toolset and script that flatcar-install needs.
+FROM quay.io/coreos/butane:latest
+
+# Pin flatcar-install to a specific flatcar/init commit rather than a moving branch.
+ARG FLATCAR_INIT_REF=1b9b634d69cec244367fd70c6bc2ce8e4239bdf2
+
+# Toolset required by flatcar-install.
+RUN dnf install -y --setopt=install_weak_deps=False --nodocs \
+        gawk \
+        gnupg2 \
+        grep \
+        sed \
+        wget \
+        util-linux \
+        coreutils \
+        lvm2 \
+        btrfs-progs \
+        bzip2 \
+        systemd-udev \
+        efibootmgr \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+RUN wget -O /usr/local/bin/flatcar-install \
+        "https://raw.githubusercontent.com/flatcar/init/${FLATCAR_INIT_REF}/bin/flatcar-install" \
+    && chmod +x /usr/local/bin/flatcar-install
+
+# GoReleaser supplies the prebuilt binary for the target platform.
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/flatcar-kit /flatcar-kit
+
+ENTRYPOINT ["/flatcar-kit"]

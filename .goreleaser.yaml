@@ -1,0 +1,75 @@
+# GoReleaser configuration for flatcar-kit.
+# Docs: https://goreleaser.com
+#
+# Releases are cut on tag pushes (see .github/workflows/release.yaml). The binary
+# version is not injected here: Go stamps the tag into the binary's build info
+# (debug.ReadBuildInfo().Main.Version), which internal/build.GitRevision() reads.
+version: 2
+
+# Registry is overridable via the CONTAINER_REGISTRY env var; defaults to
+# ghcr.io/jacobweinstock when unset (e.g. local snapshot builds).
+env:
+  - CONTAINER_REGISTRY={{ if index .Env "CONTAINER_REGISTRY" }}{{ .Env.CONTAINER_REGISTRY }}{{ else }}ghcr.io/jacobweinstock{{ end }}
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: flatcar-kit
+    binary: flatcar-kit
+    main: .
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# Multi-arch image built with buildx from the prebuilt binaries and pushed to
+# the registry. Uses Dockerfile.goreleaser, which layers the flatcar-kit binary
+# onto the butane/flatcar-install runtime.
+dockers_v2:
+  - id: flatcar-kit
+    images:
+      - "{{ .Env.CONTAINER_REGISTRY }}/flatcar-kit"
+    tags:
+      - "{{ .Version }}"
+      - latest
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.source: "{{ .GitURL }}"
+
+release:
+  # Disable release creation when there's no GITHUB_TOKEN (e.g. local snapshots).
+  disable: "{{ if index .Env \"GITHUB_TOKEN\" }}false{{ else }}true{{ end }}"

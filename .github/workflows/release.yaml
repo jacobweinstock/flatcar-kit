@@ -6,16 +6,15 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/${{ github.repository }}
   GO_VERSION: "1.26"
 
 jobs:
-  release:
-    # Build and publish the multi-arch image to ghcr.io on tag pushes. Binaries are
-    # compiled from the tagged source so the tag is available to the build.
+  goreleaser:
+    # Build and publish the multi-arch image, binaries, checksums, changelog and
+    # GitHub Release on tag pushes. GoReleaser owns all publishing.
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout code
@@ -42,7 +41,7 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish image
+      - name: Run GoReleaser
         run: make release
         env:
-          IMAGE: ${{ env.IMAGE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
