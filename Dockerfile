@@ -35,7 +35,9 @@ COPY out/flatcar-kit-${TARGETOS}-${TARGETARCH} /flatcar-kit
 FROM build-${BUILD_IN_CONTAINER} AS build
 
 # ---- runtime stage ---------------------------------------------------------
-FROM quay.io/coreos/butane:latest
+# Pinned by digest for reproducible builds. Resolve a new digest with:
+#   docker buildx imagetools inspect quay.io/coreos/butane:latest
+FROM quay.io/coreos/butane:latest@sha256:7a6a5c270d3bac36981449cfcb5a553e64a2d2a89b5eb87023342f9c7e22edf6
 
 # Pin flatcar-install to a specific flatcar/init commit rather than a moving branch.
 ARG FLATCAR_INIT_REF=1b9b634d69cec244367fd70c6bc2ce8e4239bdf2

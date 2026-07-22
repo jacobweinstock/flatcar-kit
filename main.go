@@ -27,7 +27,7 @@ func run() int {
 	ctx, done := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 	defer done()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("using flatcar-kit", "version", build.GitRevision())
+	logger.Info("flatcar-kit", "version", build.GitRevision())
 
 	root := buildRoot(logger)
 
@@ -40,7 +40,7 @@ func run() int {
 		fmt.Fprintln(os.Stderr, ffhelp.Command(root))
 		return 2
 	case err != nil:
-		logger.Error(err.Error())
+		logger.Error("command failed", "error", err)
 		return 1
 	}
 	return 0

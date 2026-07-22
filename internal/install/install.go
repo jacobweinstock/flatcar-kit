@@ -16,6 +16,10 @@ import (
 // flatcarInstall is the name of the external installer script.
 const flatcarInstall = "flatcar-install"
 
+// execCommand runs an external command. It is a package variable so tests can
+// substitute a stub in place of the real flatcar-install script.
+var execCommand = run.Command
+
 // Args builds the flatcar-install argument slice from c. When an inline Ignition
 // config is provided it is written to a temporary file whose path is used with
 // the -i flag; the returned cleanup function removes that temp file and must be
@@ -98,7 +102,7 @@ func Run(ctx context.Context, logger *slog.Logger, c *config.Install) error {
 	defer cleanup()
 
 	logger.Info("Running flatcar-install...")
-	if err := run.Command(ctx, nil, os.Stdout, flatcarInstall, args...); err != nil {
+	if err := execCommand(ctx, nil, os.Stdout, flatcarInstall, args...); err != nil {
 		return fmt.Errorf("install failed: %w", err)
 	}
 	logger.Info("Install successful.")
